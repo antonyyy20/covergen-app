@@ -7,6 +7,7 @@ import { useForm } from "react-hook-form"
 import { zodResolver } from "@hookform/resolvers/zod"
 import * as z from "zod"
 import { createClient } from "@/lib/supabase/client"
+import { getAppUrl } from "@/lib/utils"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
@@ -37,8 +38,18 @@ export default function ForgotPasswordPage() {
   const onSubmit = async (data: ForgotPasswordForm) => {
     setIsLoading(true)
     try {
+      // Get the app URL - this should use NEXT_PUBLIC_APP_URL if set
+      const appUrl = getAppUrl()
+      const redirectUrl = `${appUrl}/auth/callback?next=/reset-password`
+      
+      // Debug: log the redirect URL (remove in production)
+      if (process.env.NODE_ENV === "development") {
+        console.log("🔗 Password reset redirect URL:", redirectUrl)
+        console.log("🔧 NEXT_PUBLIC_APP_URL:", process.env.NEXT_PUBLIC_APP_URL || "NOT SET")
+      }
+      
       const { error } = await supabase.auth.resetPasswordForEmail(data.email, {
-        redirectTo: `${window.location.origin}/auth/callback?next=/reset-password`,
+        redirectTo: redirectUrl,
       })
 
       if (error) throw error

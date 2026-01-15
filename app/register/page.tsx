@@ -7,6 +7,7 @@ import { useForm } from "react-hook-form"
 import { zodResolver } from "@hookform/resolvers/zod"
 import * as z from "zod"
 import { createClient } from "@/lib/supabase/client"
+import { getAppUrl } from "@/lib/utils"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
@@ -38,10 +39,21 @@ export default function RegisterPage() {
   const onSubmit = async (data: RegisterForm) => {
     setIsLoading(true)
     try {
+      // Get the app URL - this should use NEXT_PUBLIC_APP_URL if set
+      const appUrl = getAppUrl()
+      const redirectUrl = `${appUrl}/auth/callback?next=/app`
+      
+      // Debug: log the redirect URL (remove in production)
+      if (process.env.NODE_ENV === "development") {
+        console.log("🔗 Registration redirect URL:", redirectUrl)
+        console.log("🔧 NEXT_PUBLIC_APP_URL:", process.env.NEXT_PUBLIC_APP_URL || "NOT SET")
+      }
+      
       const { error } = await supabase.auth.signUp({
         email: data.email,
         password: data.password,
         options: {
+          emailRedirectTo: redirectUrl,
           data: {
             name: data.name,
           },

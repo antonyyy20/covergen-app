@@ -2,7 +2,6 @@
 
 import { useState, useEffect, useCallback } from "react"
 import { createClient } from "@/lib/supabase/client"
-import { Card, CardContent } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import {
   AlertDialog,
@@ -21,9 +20,11 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "@/components/ui/dialog"
-import { Image as ImageIcon, Download, Trash2, Maximize2 } from "lucide-react"
+import { Image as ImageIcon, Download, Trash2, Maximize2, Loader2 } from "lucide-react"
 import { toast } from "sonner"
 import Image from "next/image"
+import { Progress } from "@/components/ui/progress"
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 
 interface Output {
   id: string
@@ -87,14 +88,40 @@ export function OutputsTab({ projectId }: { projectId: string }) {
     try {
       const { data: jobs } = await supabase
         .from("generation_jobs")
-        .select("status")
+        .select("id, status, created_at, started_at")
         .eq("project_id", projectId)
         .in("status", ["queued", "running"])
+        .order("created_at", { ascending: false })
+        .limit(1)
 
-      setHasActiveJobs(jobs ? jobs.length > 0 : false)
+      const hasActive = jobs ? jobs.length > 0 : false
+      setHasActiveJobs(hasActive)
+      
+      if (hasActive && jobs && jobs.length > 0) {
+        setActiveJobStatus({ id: jobs[0].id, status: jobs[0].status })
+        
+        // Calcular progreso aproximado basado en el tiempo
+        const job = jobs[0]
+        if (job.status === "running" && job.started_at) {
+          const startedAt = new Date(job.started_at).getTime()
+          const now = Date.now()
+          const elapsed = now - startedAt
+          // Estimación: 20-30 segundos para generar
+          const estimatedDuration = 25000 // 25 segundos
+          const calculatedProgress = Math.min((elapsed / estimatedDuration) * 100, 90) // Máximo 90% hasta que termine
+          setProgress(calculatedProgress)
+        } else if (job.status === "queued") {
+          setProgress(10) // 10% cuando está en cola
+        }
+      } else {
+        setActiveJobStatus(null)
+        setProgress(0)
+      }
     } catch (error) {
       console.error("Error checking active jobs:", error)
       setHasActiveJobs(false)
+      setActiveJobStatus(null)
+      setProgress(0)
     }
   }, [projectId, supabase])
 
@@ -112,10 +139,11 @@ export function OutputsTab({ projectId }: { projectId: string }) {
 
     const interval = setInterval(() => {
       fetchOutputs()
-    }, 5000) // Refrescar cada 5 segundos
+      checkActiveJobs() // También actualizar el estado del job
+    }, 3000) // Refrescar cada 3 segundos
 
     return () => clearInterval(interval)
-  }, [hasActiveJobs, fetchOutputs])
+  }, [hasActiveJobs, fetchOutputs, checkActiveJobs])
 
   // Verificar jobs activos periódicamente
   useEffect(() => {
@@ -170,6 +198,32 @@ export function OutputsTab({ projectId }: { projectId: string }) {
 
   return (
     <div className="space-y-4">
+      {/* Barra de progreso cuando hay generación activa */}
+      {hasActiveJobs && activeJobStatus && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base flex items-center gap-2">
+              <Loader2 className="h-4 w-4 animate-spin text-primary" />
+              Generating Cover...
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-2">
+            <div className="flex items-center justify-between text-sm">
+              <span className="text-muted-foreground">
+                Status: <span className="capitalize font-medium">{activeJobStatus.status}</span>
+              </span>
+              <span className="text-muted-foreground">{Math.round(progress)}%</span>
+            </div>
+            <Progress value={progress} className="h-2" />
+            <p className="text-xs text-muted-foreground">
+              {activeJobStatus.status === "queued" 
+                ? "Your generation is in queue, it will start soon..."
+                : "Creating your cover image, this may take a few moments..."}
+            </p>
+          </CardContent>
+        </Card>
+      )}
+
       {loading ? (
         <div className="text-center py-8 text-muted-foreground">Loading...</div>
       ) : outputs.length === 0 ? (

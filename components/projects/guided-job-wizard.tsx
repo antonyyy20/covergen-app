@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect, useCallback, useMemo } from "react"
+import { useState, useEffect, useCallback, useMemo, useRef } from "react"
 import { useForm } from "react-hook-form"
 import { zodResolver } from "@hookform/resolvers/zod"
 import * as z from "zod"
@@ -37,7 +37,6 @@ import {
   Info,
   Sparkles,
   Image as ImageIcon,
-  Smartphone,
   Palette,
   Target,
 } from "lucide-react"
@@ -65,14 +64,6 @@ const wizardSchema = z.object({
       role: z.enum(["reference_cover", "app_screenshot", "brand_logo"]),
     })
   ),
-
-  // Step 4
-  variants: z.array(
-    z.object({
-      id: z.string(),
-      enabled: z.boolean(),
-    })
-  ),
 })
 
 type WizardForm = z.infer<typeof wizardSchema>
@@ -82,33 +73,6 @@ interface GuidedJobWizardProps {
   children: React.ReactNode
   onCreated?: () => void
 }
-
-const VARIANTS = [
-  {
-    id: "A",
-    name: "Big Headline + Screenshot",
-    description: "Prominent headline with one screenshot",
-    enabled: true,
-  },
-  {
-    id: "B",
-    name: "Phone Mockup + Gradient",
-    description: "Phone mockup with gradient background and 2 screenshots",
-    enabled: true,
-  },
-  {
-    id: "C",
-    name: "UI-First Collage",
-    description: "Multiple screenshots in a clean collage layout",
-    enabled: false,
-  },
-  {
-    id: "D",
-    name: "Minimal Premium",
-    description: "One screenshot with lots of whitespace",
-    enabled: false,
-  },
-]
 
 const APP_CATEGORIES = [
   "Fitness",
@@ -153,7 +117,6 @@ export function GuidedJobWizard({ projectId, children, onCreated }: GuidedJobWiz
       mainMessage: "",
       stylePreset: "minimal",
       selectedAssets: [],
-      variants: VARIANTS.map((v) => ({ id: v.id, enabled: v.enabled })),
     },
   })
 
@@ -164,19 +127,14 @@ export function GuidedJobWizard({ projectId, children, onCreated }: GuidedJobWiz
   const appCategory = watch("appCategory")
   const mainMessage = watch("mainMessage")
   const stylePreset = watch("stylePreset")
-  const variants = watch("variants")
 
-  // Memoize selectedAssets and variants to prevent infinite loops
+  // Memoize selectedAssets to prevent infinite loops
   const selectedAssetsKey = useMemo(
     () => JSON.stringify(selectedAssets || []),
     [selectedAssets]
   )
-  const variantsKey = useMemo(
-    () => JSON.stringify(variants || []),
-    [variants]
-  )
 
-  const fetchGenerationCount = async () => {
+  const fetchGenerationCount = useCallback(async () => {
     try {
       const {
         data: { user },
@@ -203,21 +161,56 @@ export function GuidedJobWizard({ projectId, children, onCreated }: GuidedJobWiz
       console.error("Error fetching generation count:", error)
       setGenerationCount(0)
     }
-  }
+  }, [supabase])
+
+  // Use a ref to track if we've already initialized
+  const initializedRef = useRef(false)
 
   useEffect(() => {
-    if (open) {
+    if (open && !initializedRef.current) {
+      initializedRef.current = true
       fetchAssets()
       fetchGenerationCount()
-      reset()
+      // Reset form and step only when dialog opens for the first time
+      reset({
+        targetStore: "appstore",
+        goal: "attention",
+        appCategory: "",
+        mainMessage: "",
+        stylePreset: "minimal",
+        selectedAssets: [],
+      })
       setStep(0) // Start at step 0 (requirements check)
       setCritique(null)
+    } else if (!open) {
+      // Reset the ref when dialog closes
+      initializedRef.current = false
+      // Clean up state when dialog closes
+      setStep(0)
+      setCritique(null)
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open])
 
+  // Update critique when form changes (only on step 3 and when dialog is open)
+  // Use a debounce mechanism to prevent infinite loops
+  const critiqueUpdateRef = useRef<NodeJS.Timeout | null>(null)
+
   useEffect(() => {
-    // Update critique when form changes (only on step 3)
-    if (step === 3) {
+    if (!open || step !== 3) {
+      if (step !== 3) {
+        setCritique(null)
+      }
+      return
+    }
+
+    // Clear previous timeout
+    if (critiqueUpdateRef.current) {
+      clearTimeout(critiqueUpdateRef.current)
+    }
+
+    // Debounce the critique update
+    critiqueUpdateRef.current = setTimeout(() => {
       const assetCounts = {
         referenceCovers: selectedAssets?.filter(
           (sa) => sa.role === "reference_cover"
@@ -235,16 +228,22 @@ export function GuidedJobWizard({ projectId, children, onCreated }: GuidedJobWiz
         mainMessage: mainMessage || "",
         stylePreset: stylePreset || "minimal",
         selectedAssets: selectedAssets || [],
-        variants: variants || [],
+        variants: [], // Variants removed - always generate 1 variation
       }
 
       const result = critiqueCoverConfig(config, assetCounts)
       setCritique(result)
+    }, 300) // 300ms debounce
+
+    return () => {
+      if (critiqueUpdateRef.current) {
+        clearTimeout(critiqueUpdateRef.current)
+      }
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [step, selectedAssetsKey, targetStore, goal, appCategory, mainMessage, stylePreset, variantsKey])
+  }, [step, selectedAssetsKey, targetStore, goal, appCategory, mainMessage, stylePreset, open])
 
-  const fetchAssets = async () => {
+  const fetchAssets = useCallback(async () => {
     try {
       const { data, error } = await supabase
         .from("assets")
@@ -271,7 +270,7 @@ export function GuidedJobWizard({ projectId, children, onCreated }: GuidedJobWiz
     } catch (error: any) {
       toast.error("Failed to load assets")
     }
-  }
+  }, [projectId, supabase])
 
   const updateCritique = useCallback(() => {
     const assetCounts = {
@@ -290,15 +289,15 @@ export function GuidedJobWizard({ projectId, children, onCreated }: GuidedJobWiz
       appCategory: appCategory || "",
       mainMessage: mainMessage || "",
       stylePreset: stylePreset || "minimal",
-      selectedAssets: selectedAssets || [],
-      variants: variants || [],
-    }
+        selectedAssets: selectedAssets || [],
+        variants: [], // Variants removed - always generate 1 variation
+      }
 
-    const result = critiqueCoverConfig(config, assetCounts)
-    setCritique(result)
-  }, [selectedAssets, targetStore, goal, appCategory, mainMessage, stylePreset, variants])
+      const result = critiqueCoverConfig(config, assetCounts)
+      setCritique(result)
+    }, [selectedAssets, targetStore, goal, appCategory, mainMessage, stylePreset])
 
-  const toggleAsset = (assetId: string, role: "reference_cover" | "app_screenshot" | "brand_logo") => {
+  const toggleAsset = useCallback((assetId: string, role: "reference_cover" | "app_screenshot" | "brand_logo") => {
     const current = formValues.selectedAssets || []
     const existing = current.findIndex((sa) => sa.assetId === assetId && sa.role === role)
 
@@ -306,23 +305,26 @@ export function GuidedJobWizard({ projectId, children, onCreated }: GuidedJobWiz
       // Remove
       setValue(
         "selectedAssets",
-        current.filter((_, i) => i !== existing)
+        current.filter((_, i) => i !== existing),
+        { shouldValidate: false, shouldDirty: false }
       )
     } else {
       // Add
-      setValue("selectedAssets", [...current, { assetId, role }])
+      setValue(
+        "selectedAssets",
+        [...current, { assetId, role }],
+        { shouldValidate: false, shouldDirty: false }
+      )
     }
-  }
-
-  const toggleVariant = (variantId: string) => {
-    const current = formValues.variants || []
-    setValue(
-      "variants",
-      current.map((v) => (v.id === variantId ? { ...v, enabled: !v.enabled } : v))
-    )
-  }
+  }, [formValues.selectedAssets, setValue])
 
   const onSubmit = async (data: WizardForm) => {
+    // Double check that we're on step 3 (last step)
+    if (step !== 3) {
+      toast.error("Please complete all steps before creating a generation")
+      return
+    }
+
     setIsLoading(true)
     try {
       const {
@@ -331,6 +333,7 @@ export function GuidedJobWizard({ projectId, children, onCreated }: GuidedJobWiz
 
       if (!user) {
         toast.error("You must be logged in")
+        setIsLoading(false)
         return
       }
 
@@ -358,7 +361,7 @@ export function GuidedJobWizard({ projectId, children, onCreated }: GuidedJobWiz
         mainMessage: data.mainMessage,
         stylePreset: data.stylePreset,
         selectedAssets: data.selectedAssets,
-        variants: data.variants.filter((v) => v.enabled),
+        variants: [], // Variants removed - always generate 1 variation
       }
 
       const prompt = buildCoverPrompt(config, availableAssets)
@@ -384,9 +387,9 @@ export function GuidedJobWizard({ projectId, children, onCreated }: GuidedJobWiz
           prompt,
           target_store: data.targetStore,
           aspect_ratio: aspectRatio.ratio,
-          num_variations: data.variants.filter((v) => v.enabled).length,
+          num_variations: 1, // Always generate 1 variation
           requested_outputs: {
-            variants: data.variants.filter((v) => v.enabled).map((v) => v.id),
+            variants: [],
           },
           job_config: config,
           critique: critiqueResult.summary,
@@ -441,7 +444,7 @@ export function GuidedJobWizard({ projectId, children, onCreated }: GuidedJobWiz
   }
 
   const nextStep = () => {
-    if (step < 4) {
+    if (step < 3) {
       setStep(step + 1)
     }
   }
@@ -476,16 +479,18 @@ export function GuidedJobWizard({ projectId, children, onCreated }: GuidedJobWiz
           (sa) => sa.role === "app_screenshot"
         ).length || 0
         return refCovers >= 1 && screenshots >= 2
-      case 4:
-        const enabled = formValues.variants?.filter((v) => v.enabled).length || 0
-        return enabled > 0
       default:
         return false
     }
   }
 
+  const handleOpenChange = (newOpen: boolean) => {
+    if (newOpen === open) return // Prevent unnecessary updates
+    setOpen(newOpen)
+  }
+
   return (
-    <Dialog open={open} onOpenChange={setOpen}>
+    <Dialog open={open} onOpenChange={handleOpenChange}>
       <DialogTrigger asChild>{children}</DialogTrigger>
       <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
         <DialogHeader>
@@ -620,7 +625,7 @@ export function GuidedJobWizard({ projectId, children, onCreated }: GuidedJobWiz
         {step > 0 && (
           <>
             <div className="flex items-center justify-between mb-6">
-              {[1, 2, 3, 4].map((s) => (
+              {[1, 2, 3].map((s) => (
                 <div key={s} className="flex items-center flex-1">
                   <div
                     className={cn(
@@ -632,7 +637,7 @@ export function GuidedJobWizard({ projectId, children, onCreated }: GuidedJobWiz
                   >
                     {step > s ? <CheckCircle2 className="w-5 h-5" /> : s}
                   </div>
-                  {s < 4 && (
+                  {s < 3 && (
                     <div
                       className={cn(
                         "flex-1 h-1 mx-2",
@@ -644,7 +649,16 @@ export function GuidedJobWizard({ projectId, children, onCreated }: GuidedJobWiz
               ))}
             </div>
 
-            <form onSubmit={handleSubmit(onSubmit)} className="space-y-6">
+            <form 
+              onSubmit={(e) => {
+                e.preventDefault()
+                // Only allow submission on step 3 (last step)
+                if (step === 3) {
+                  handleSubmit(onSubmit)(e)
+                }
+              }} 
+              className="space-y-6"
+            >
           {/* Step 1: Goal & Context */}
           {step === 1 && (
             <div className="space-y-6">
@@ -1001,65 +1015,34 @@ export function GuidedJobWizard({ projectId, children, onCreated }: GuidedJobWiz
             </div>
           )}
 
-          {/* Step 4: Variants */}
-          {step === 4 && (
-            <div className="space-y-6">
-              <div>
-                <h3 className="text-lg font-semibold mb-4 flex items-center gap-2">
-                  <Smartphone className="w-5 h-5" />
-                  Select Variants
-                </h3>
-                <p className="text-sm text-muted-foreground mb-4">
-                  Choose which layout variants to generate (select 1-4)
-                </p>
-              </div>
-
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                {VARIANTS.map((variant) => {
-                  const formVariant = formValues.variants?.find((v) => v.id === variant.id)
-                  const isEnabled = formVariant?.enabled || false
-                  return (
-                    <Card
-                      key={variant.id}
-                      className={cn(
-                        "cursor-pointer transition-all",
-                        isEnabled ? "ring-2 ring-primary" : "hover:border-primary/50"
-                      )}
-                      onClick={() => toggleVariant(variant.id)}
-                    >
-                      <CardHeader>
-                        <div className="flex items-center justify-between">
-                          <CardTitle className="text-base">Variant {variant.id}</CardTitle>
-                          <Checkbox checked={isEnabled} onCheckedChange={() => toggleVariant(variant.id)} />
-                        </div>
-                        <CardDescription>{variant.name}</CardDescription>
-                      </CardHeader>
-                      <CardContent>
-                        <p className="text-sm text-muted-foreground">{variant.description}</p>
-                      </CardContent>
-                    </Card>
-                  )
-                })}
-              </div>
-
-              {formValues.variants?.filter((v) => v.enabled).length === 0 && (
-                <p className="text-sm text-destructive">At least one variant must be selected</p>
-              )}
-            </div>
-          )}
-
           <DialogFooter className="flex items-center justify-between">
             <div>
               {step > 1 && (
-                <Button type="button" variant="outline" onClick={prevStep}>
+                <Button 
+                  type="button" 
+                  variant="outline" 
+                  onClick={(e) => {
+                    e.preventDefault()
+                    e.stopPropagation()
+                    prevStep()
+                  }}
+                >
                   <ArrowLeft className="w-4 h-4 mr-2" />
                   Previous
                 </Button>
               )}
             </div>
             <div className="flex gap-2">
-              {step < 4 ? (
-                <Button type="button" onClick={nextStep} disabled={!canProceed()}>
+              {step < 3 ? (
+                <Button 
+                  type="button" 
+                  onClick={(e) => {
+                    e.preventDefault()
+                    e.stopPropagation()
+                    nextStep()
+                  }} 
+                  disabled={!canProceed()}
+                >
                   Next
                   <ArrowRight className="w-4 h-4 ml-2" />
                 </Button>
@@ -1067,6 +1050,14 @@ export function GuidedJobWizard({ projectId, children, onCreated }: GuidedJobWiz
                 <Button 
                   type="submit" 
                   disabled={isLoading || !canProceed() || (generationCount !== null && generationCount >= 5)}
+                  onClick={(e) => {
+                    // Only allow submit on step 3 (last step)
+                    if (step !== 3) {
+                      e.preventDefault()
+                      e.stopPropagation()
+                      return
+                    }
+                  }}
                 >
                   {isLoading ? "Creating..." : "Create Generation"}
                   {generationCount !== null && generationCount >= 5 && (
