@@ -25,6 +25,7 @@ interface Asset {
   storage_key: string
   public_url: string | null
   created_at: string
+  signedUrl?: string | null
 }
 
 export function AssetsTab({ projectId }: { projectId: string }) {
@@ -68,7 +69,7 @@ export function AssetsTab({ projectId }: { projectId: string }) {
         })
       )
 
-      setAssets(assetsWithUrls as any)
+      setAssets(assetsWithUrls)
     } catch (error: any) {
       toast.error(error.message || "Failed to load assets")
     } finally {

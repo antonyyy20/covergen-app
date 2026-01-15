@@ -70,12 +70,28 @@ export function EditProjectDialog({
     reset,
   } = useForm<ProjectForm>({
     resolver: zodResolver(projectSchema),
-    defaultValues: project,
+    defaultValues: {
+      title: project.title,
+      platform: (project.platform === "ios" || project.platform === "android" || project.platform === "both") 
+        ? project.platform 
+        : "both",
+      app_name: project.app_name || undefined,
+      locale: project.locale || undefined,
+      notes: project.notes || undefined,
+    },
   })
 
   useEffect(() => {
     if (open) {
-      reset(project)
+      reset({
+        title: project.title,
+        platform: (project.platform === "ios" || project.platform === "android" || project.platform === "both") 
+          ? project.platform 
+          : "both",
+        app_name: project.app_name || undefined,
+        locale: project.locale || undefined,
+        notes: project.notes || undefined,
+      })
     }
   }, [open, project, reset])
 

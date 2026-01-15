@@ -36,6 +36,7 @@ interface Output {
   storage_key: string | null
   public_url: string | null
   created_at: string
+  signedUrl?: string | null
 }
 
 export function OutputsTab({ projectId }: { projectId: string }) {
@@ -73,7 +74,7 @@ export function OutputsTab({ projectId }: { projectId: string }) {
         })
       )
 
-      setOutputs(outputsWithUrls as any)
+      setOutputs(outputsWithUrls)
     } catch (error: any) {
       toast.error(error.message || "Failed to load outputs")
     } finally {
@@ -90,7 +91,7 @@ export function OutputsTab({ projectId }: { projectId: string }) {
         .eq("project_id", projectId)
         .in("status", ["queued", "running"])
 
-      setHasActiveJobs(jobs && jobs.length > 0)
+      setHasActiveJobs(jobs ? jobs.length > 0 : false)
     } catch (error) {
       console.error("Error checking active jobs:", error)
       setHasActiveJobs(false)
@@ -125,7 +126,7 @@ export function OutputsTab({ projectId }: { projectId: string }) {
     return () => clearInterval(checkInterval)
   }, [checkActiveJobs])
 
-  const handleDownload = async (output: Output & { signedUrl?: string }) => {
+  const handleDownload = async (output: Output) => {
     try {
       if (!output.signedUrl) {
         toast.error("Download URL not available")
@@ -187,12 +188,12 @@ export function OutputsTab({ projectId }: { projectId: string }) {
                   {output.mime_type?.startsWith("image/") && output.signedUrl ? (
                     <div className="relative aspect-square group cursor-pointer">
                       <Image
-                        src={(output as any).signedUrl}
+                        src={output.signedUrl!}
                         alt={output.label || `Output ${output.variant_index}`}
                         fill
                         className="object-cover"
                         onClick={() => setSelectedImage({
-                          url: (output as any).signedUrl,
+                          url: output.signedUrl!,
                           label: output.label || `Variant ${output.variant_index || "N/A"}`
                         })}
                       />
@@ -216,7 +217,7 @@ export function OutputsTab({ projectId }: { projectId: string }) {
                           onClick={(e) => {
                             e.stopPropagation()
                             setSelectedImage({
-                              url: (output as any).signedUrl,
+                              url: output.signedUrl!,
                               label: output.label || `Variant ${output.variant_index || "N/A"}`
                             })
                           }}
