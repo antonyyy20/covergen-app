@@ -44,6 +44,8 @@ export function OutputsTab({ projectId }: { projectId: string }) {
   const [outputs, setOutputs] = useState<Output[]>([])
   const [loading, setLoading] = useState(true)
   const [hasActiveJobs, setHasActiveJobs] = useState(false)
+  const [activeJobStatus, setActiveJobStatus] = useState<{ id: string; status: string } | null>(null)
+  const [progress, setProgress] = useState(0)
   const [selectedImage, setSelectedImage] = useState<{ url: string; label: string } | null>(null)
   const supabase = createClient()
 
